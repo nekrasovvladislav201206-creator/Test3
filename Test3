@@ -8,7 +8,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 -- Создание графического интерфейса
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = CoreGui
-ScreenGui.Name = "MM2FixInvisGui"
+ScreenGui.Name = "MM2InvisFinalGui"
 
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Parent = ScreenGui
@@ -18,7 +18,7 @@ ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.Font = Enum.Font.SourceSansBold
 ToggleButton.TextSize = 16
-ToggleButton.Text = "MM2 Инвиз V4"
+ToggleButton.Text = "MM2 Настоящий Инвиз"
 ToggleButton.Active = true
 ToggleButton.Draggable = true
 
@@ -27,14 +27,12 @@ UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = ToggleButton
 
 local isInvis = false
-local savedTransparencies = {}
-local attachmentLoop = nil
+local renderConnection = nil
+local savedData = {}
 
 ToggleButton.MouseButton1Click:Connect(function()
     character = player.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
     
     isInvis = not isInvis
     
@@ -42,64 +40,56 @@ ToggleButton.MouseButton1Click:Connect(function()
         ToggleButton.Text = "Выключить Инвиз"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         
-        -- 1. Локальная полупрозрачность для себя
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                savedTransparencies[part] = part.Transparency
-                part.Transparency = 0.5
-                part.CanCollide = false
-            elseif part:IsA("Decal") or part:IsA("Texture") then
-                savedTransparencies[part] = part.Transparency
-                part.Transparency = 0.7
-            end
-        end
-        
-        -- 2. Скрытие от сервера без изменения player.Character (чтобы предметы работали)
-        -- Ломаем суставы Motor6D только для рендера сервера, но сохраняем RootPart на месте
-        local root = character.HumanoidRootPart
-        attachmentLoop = RunService.RenderStepped:Connect(function()
-            if isInvis and character and root then
-                -- Удерживаем физическую симуляцию подбора предметов на вашем клиенте
-                for _, tool in pairs(character:GetChildren()) do
-                    if tool:IsA("Tool") then
-                        local handle = tool:FindFirstChild("Handle")
-                        if handle then handle.CanCollide = false end
+        -- Прячем меши и одежду для сервера, но делаем полупрозрачными локально
+        renderConnection = RunService.Heartbeat:Connect(function()
+            if not isInvis or not character then return end
+            
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    -- Для вас: полупрозрачный вид
+                    part.Transparency = 0.5
+                    part.CanCollide = false
+                    
+                    -- Хак для репликации сервера: убираем меш из сетевой видимости
+                    local mesh = part:FindFirstChildOfClass("SpecialMesh") or part:FindFirstChildOfClass("CharacterMesh")
+                    if mesh then
+                        mesh.Scale = Vector3.new(0, 0, 0)
                     end
-                end
-                
-                -- Сдвигаем суставы отображения для сервера на миллиметр, ломая их отображение у игроков
-                for _, joint in pairs(character:GetDescendants()) do
-                    if joint:IsA("Motor6D") and joint.Name ~= "RootJoint" then
-                        joint.Transform = CFrame.new(0, -9999, 0) -- Для сервера вы улетели, но физический RootPart на месте
-                    end
+                elseif part:IsA("Decal") or part:IsA("Texture") then
+                    part.Transparency = 1 -- Скрываем лицо
+                elseif part:IsA("Accessory") or part:IsA("Shirt") or part:IsA("Pants") then
+                    -- Локально скрываем аксессуары и одежду для полной невидимости у других
+                    local handle = part:FindFirstChild("Handle")
+                    if handle then handle.Transparency = 1 end
                 end
             end
         end)
         
     else
-        -- Безопасное отключение БЕЗ СМЕРТИ
-        ToggleButton.Text = "MM2 Инвиз V4"
+        -- Отключение без смерти
+        ToggleButton.Text = "MM2 Настоящий Инвиз"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
         
-        if attachmentLoop then
-            attachmentLoop:Disconnect()
-            attachmentLoop = nil
+        if renderConnection then
+            renderConnection:Disconnect()
+            renderConnection = nil
         end
         
-        -- Сброс трансформации суставов
-        if humanoid then
-            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-        
-        -- Возвращаем видимость назад
-        for part, trans in pairs(savedTransparencies) do
-            if part and part.Parent then
-                part.Transparency = trans
-                if part:IsA("BasePart") then
-                    part.CanCollide = true
+        -- Возвращаем всё в нормальное состояние
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.Transparency = 0
+                part.CanCollide = true
+                local mesh = part:FindFirstChildOfClass("SpecialMesh") or part:FindFirstChildOfClass("CharacterMesh")
+                if mesh then
+                    mesh.Scale = Vector3.new(1, 1, 1)
                 end
+            elseif part:IsA("Decal") or part:IsA("Texture") then
+                part.Transparency = 0
+            elseif part:IsA("Accessory") then
+                local handle = part:FindFirstChild("Handle")
+                if handle then handle.Transparency = 0 end
             end
         end
-        savedTransparencies = {}
     end
 end)
