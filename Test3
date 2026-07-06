@@ -8,7 +8,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 -- Создание графического интерфейса
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = CoreGui
-ScreenGui.Name = "UniversalLoopHackGui"
+ScreenGui.Name = "UniversalPerfectLoopGui"
 
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Parent = ScreenGui
@@ -26,7 +26,6 @@ local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = ToggleButton
 
--- Переменные состояний (0 = обычный, 1 = бессмертие, 2 = невидимость)
 local currentMode = 0
 local savedTransparencies = {}
 local loopConnection = nil
@@ -39,7 +38,7 @@ local function resetAll()
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
     local root = character.HumanoidRootPart
     
-    -- Сброс физики и скоростей в нормальное состояние
+    -- Сброс физики
     root.Velocity = Vector3.new(0,0,0)
     root.RotVelocity = Vector3.new(0,0,0)
     
@@ -55,8 +54,6 @@ local function resetAll()
     for part, trans in pairs(savedTransparencies) do
         if part and part.Parent then
             part.Transparency = trans
-            local mesh = part:FindFirstChildOfClass("SpecialMesh") or part:FindFirstChildOfClass("CharacterMesh")
-            if mesh then mesh.Scale = Vector3.new(1, 1, 1) end
         end
     end
     
@@ -80,50 +77,57 @@ ToggleButton.MouseButton1Click:Connect(function()
     resetAll() 
     
     if currentMode == 1 then
-        -- === РЕЖИМ 1: БЕССМЕРТИЕ (Fling God) ===
-        -- Ничего не собирает. Вы можете собирать предметы сами, просто наступая на них.
+        -- === РЕЖИМ 1: БЕССМЕРТИЕ (No-Clip Phase God) ===
+        -- Вы не крутитесь, не улетаете, можете сами собирать любые вещи ногами
         ToggleButton.Text = "Режим: БЕССМЕРТИЕ"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50) -- Зеленый
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
         
-        loopConnection = RunService.Heartbeat:Connect(function()
-            if character and root then
-                -- Отключаем коллизию конечностей и закручиваем хитбокс для сервера, чтобы аннулировать урон
+        loopConnection = RunService.Stepped:Connect(function()
+            if character then
+                -- Отключаем коллизию со всеми игроками и их оружием
                 for _, part in pairs(character:GetDescendants()) do
-                    if part:IsA("BasePart") then
+                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
                         part.CanCollide = false
                     end
                 end
-                root.Velocity = Vector3.new(0, 0, 0)
-                root.RotVelocity = Vector3.new(0, 5000, 0) -- Бешеное вращение сбивает серверный урон оружия врагов
+                -- Оставляем только HumanoidRootPart коллизию с картой, чтобы не падать сквозь пол
+                if root then
+                    root.CanCollide = true
+                    root.Velocity = Vector3.new(root.Velocity.X, root.Velocity.Y, root.Velocity.Z)
+                    root.RotVelocity = Vector3.new(0,0,0) -- Никакого вращения!
+                end
             end
         end)
         
     elseif currentMode == 2 then
-        -- === РЕЖИМ 2: НЕВИДИМОСТЬ (Mesh Scale Invisibility) ===
-        -- Скрипт вообще ничего не собирает. Вы просто бегаете невидимкой на поверхности.
+        -- === РЕЖИМ 2: НЕВИДИМОСТЬ (Server-Desync Invis) ===
+        -- Скрипт ничего не собирает. Вы бегаете невидимкой на поверхности земли
         ToggleButton.Text = "Режим: НЕВИДИМОСТЬ"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Красный
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         
         loopConnection = RunService.Heartbeat:Connect(function()
             if character and root then
-                for _, part in pairs(character:GetDescendants()) do
+                -- Ломаем отправку координат положения частей тела на сервер
+                for _, part in pairs(character:GetChildren()) do
                     if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
                         if not savedTransparencies[part] then
                             savedTransparencies[part] = part.Transparency
                         end
-                        -- Локально: вы видите себя полупрозрачным
+                        -- Локально вы себя видите полупрозрачным
                         part.Transparency = 0.5
-                        part.CanCollide = true -- Коллизия включена, вы не падаете под карту
                         
-                        -- Для сервера: сжимаем части тела в ноль, игроки видят пустоту
-                        local mesh = part:FindFirstChildOfClass("SpecialMesh") or part:FindFirstChildOfClass("CharacterMesh")
-                        if mesh then
-                            mesh.Scale = Vector3.new(0, 0, 0)
-                        end
-                    elseif part:IsA("Decal") or part:IsA("Texture") then
-                        part.Transparency = 1
-                    elseif part:IsA("Accessory") and part:FindFirstChild("Handle") then
-                        part.Handle.Transparency = 1 -- Скрываем аксессуары
+                        -- Для сервера вы застыли в одной невидимой точке
+                        part.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                        part.AssemblyAngularVelocity = Vector3.new(0,0,0)
+                    end
+                end
+                
+                -- Полностью прячем аксессуары и лица для других
+                for _, access in pairs(character:GetDescendants()) do
+                    if access:IsA("Accessory") and access:FindFirstChild("Handle") then
+                        access.Handle.Transparency = 1
+                    elseif access:IsA("Decal") or access:IsA("Texture") then
+                        access.Transparency = 1
                     end
                 end
             end
@@ -132,6 +136,6 @@ ToggleButton.MouseButton1Click:Connect(function()
     else
         -- === РЕЖИМ 0: ОБЫЧНЫЙ ===
         ToggleButton.Text = "Режим: ОБЫЧНЫЙ"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35) -- Серый
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
     end
 end)
