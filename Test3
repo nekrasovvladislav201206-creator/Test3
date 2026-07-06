@@ -32,7 +32,7 @@ local loopConnection = nil
 
 -- Переменные таймера задержки (0.25 секунды)
 local lastTeleportTime = 0
-local delayDuration = 0.25 
+local delayDuration = 0.01 
 local teleportCFrame = nil
 
 -- Функция проверки объектов рядом с полупрозрачным клоном
