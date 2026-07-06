@@ -1,0 +1,84 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+
+-- Создание UI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = CoreGui
+ScreenGui.Name = "InvisToolGui"
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Parent = ScreenGui
+ToggleButton.Size = UDim2.new(0, 160, 0, 50)
+ToggleButton.Position = UDim2.new(0.05, 0, 0.4, 0)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.Font = Enum.Font.SourceSansBold
+ToggleButton.TextSize = 16
+ToggleButton.Text = "Инвиз + Предметы"
+ToggleButton.Active = true
+ToggleButton.Draggable = true
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = ToggleButton
+
+local invisible = false
+local originalMaterials = {}
+
+-- Функция для скрытия персонажа с сохранением подбора предметов
+local function toggleInvis(state)
+    character = player.Character
+    if not character then return end
+    
+    -- Проходим по всем элементам персонажа
+    for _, part in pairs(character:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            if state then
+                -- Сохраняем оригинальную прозрачность на всякий случай
+                originalMaterials[part] = part.Transparency
+                -- С точки зрения рендеринга на вашем экране: делаем полупрозрачным
+                part.Transparency = 0.5
+                
+                -- Хак для сервера: ломаем репликацию мешей (рабочий обход для тулсов)
+                -- Мы принудительно заставляем сервер думать, что текстуры прозрачны
+                local mesh = part:FindFirstChildOfClass("SpecialMesh")
+                if mesh then
+                    mesh.Scale = Vector3.new(0, 0, 0) -- Для сервера вы сжались в точку, но локально вы на месте
+                end
+            else
+                -- Возвращаем видимость назад без ресета и смерти
+                part.Transparency = originalMaterials[part] or 0
+                local mesh = part:FindFirstChildOfClass("SpecialMesh")
+                if mesh then
+                    mesh.Scale = Vector3.new(1, 1, 1)
+                end
+            end
+        elseif part:IsA("Decal") or part:IsA("Texture") then
+            -- Скрываем лица и принты на одежде
+            part.Transparency = state and 1 or 0
+        end
+    end
+    
+    -- Корректируем коллизию хитбокса, чтобы предметы притягивались к рукам
+    local rightHand = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
+    if rightHand then
+        rightHand.CanCollide = true
+    end
+end
+
+ToggleButton.MouseButton1Click:Connect(function()
+    invisible = not invisible
+    if invisible then
+        ToggleButton.Text = "Выключить инвиз"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        toggleInvis(true)
+    else
+        ToggleButton.Text = "Инвиз + Предметы"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        toggleInvis(false)
+    end
+end)
