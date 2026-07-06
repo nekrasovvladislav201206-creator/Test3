@@ -5,20 +5,20 @@ local CoreGui = game:GetService("CoreGui")
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 
--- Создание UI кнопки
+-- Создание графического интерфейса
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = CoreGui
-ScreenGui.Name = "MM2InvisSimpleGui"
+ScreenGui.Name = "MM2FixInvisGui"
 
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Parent = ScreenGui
 ToggleButton.Size = UDim2.new(0, 160, 0, 50)
 ToggleButton.Position = UDim2.new(0.05, 0, 0.4, 0)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.Font = Enum.Font.SourceSansBold
 ToggleButton.TextSize = 16
-ToggleButton.Text = "MM2 Инвиз"
+ToggleButton.Text = "MM2 Инвиз V4"
 ToggleButton.Active = true
 ToggleButton.Draggable = true
 
@@ -27,68 +27,79 @@ UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = ToggleButton
 
 local isInvis = false
-local clone = nil
-local loopConn = nil
+local savedTransparencies = {}
+local attachmentLoop = nil
 
 ToggleButton.MouseButton1Click:Connect(function()
     character = player.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
     
     isInvis = not isInvis
     
     if isInvis then
-        ToggleButton.Text = "Выключить инвиз"
+        ToggleButton.Text = "Выключить Инвиз"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         
-        -- Клонируем персонажа для себя
-        character.Archivable = true
-        clone = character:Clone()
-        clone.Parent = workspace
-        
-        -- Делаем клона полупрозрачным
-        for _, part in pairs(clone:GetDescendants()) do
+        -- 1. Локальная полупрозрачность для себя
+        for _, part in pairs(character:GetDescendants()) do
             if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                savedTransparencies[part] = part.Transparency
                 part.Transparency = 0.5
                 part.CanCollide = false
-            elseif part:IsA("Decal") then
-                part.Transparency = 0.6
+            elseif part:IsA("Decal") or part:IsA("Texture") then
+                savedTransparencies[part] = part.Transparency
+                part.Transparency = 0.7
             end
         end
         
-        -- Прячем оригинал от других игроков (опускаем под текстуры), но оставляем хитбокс для предметов
-        loopConn = RunService.Heartbeat:Connect(function()
-            if isInvis and character and character:FindFirstChild("HumanoidRootPart") and clone and clone:FindFirstChild("HumanoidRootPart") then
-                local realRoot = character.HumanoidRootPart
-                local cloneRoot = clone.HumanoidRootPart
+        -- 2. Скрытие от сервера без изменения player.Character (чтобы предметы работали)
+        -- Ломаем суставы Motor6D только для рендера сервера, но сохраняем RootPart на месте
+        local root = character.HumanoidRootPart
+        attachmentLoop = RunService.RenderStepped:Connect(function()
+            if isInvis and character and root then
+                -- Удерживаем физическую симуляцию подбора предметов на вашем клиенте
+                for _, tool in pairs(character:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        local handle = tool:FindFirstChild("Handle")
+                        if handle then handle.CanCollide = false end
+                    end
+                end
                 
-                -- Сервер видит вас внизу, но из-за отсутствия античита вы можете использовать ножи/предметы
-                realRoot.CFrame = cloneRoot.CFrame * CFrame.new(0, -250, 0)
-                realRoot.Velocity = Vector3.new(0, 0, 0)
+                -- Сдвигаем суставы отображения для сервера на миллиметр, ломая их отображение у игроков
+                for _, joint in pairs(character:GetDescendants()) do
+                    if joint:IsA("Motor6D") and joint.Name ~= "RootJoint" then
+                        joint.Transform = CFrame.new(0, -9999, 0) -- Для сервера вы улетели, но физический RootPart на месте
+                    end
+                end
             end
         end)
         
-        -- Переключаем камеру и управление на прозрачного клона
-        workspace.CurrentCamera.CameraSubject = clone:FindFirstChild("Humanoid")
-        player.Character = clone
-        
     else
-        -- Выключение без смерти и ресета
-        ToggleButton.Text = "MM2 Инвиз"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        -- Безопасное отключение БЕЗ СМЕРТИ
+        ToggleButton.Text = "MM2 Инвиз V4"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
         
-        if loopConn then loopConn:Disconnect() end
-        
-        player.Character = character
-        workspace.CurrentCamera.CameraSubject = character:FindFirstChild("Humanoid")
-        
-        if character and character:FindFirstChild("HumanoidRootPart") and clone and clone:FindFirstChild("HumanoidRootPart") then
-            -- Возвращаем оригинал на место клона живым
-            character.HumanoidRootPart.CFrame = clone.HumanoidRootPart.CFrame
+        if attachmentLoop then
+            attachmentLoop:Disconnect()
+            attachmentLoop = nil
         end
         
-        if clone then
-            clone:Destroy()
-            clone = nil
+        -- Сброс трансформации суставов
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
+        
+        -- Возвращаем видимость назад
+        for part, trans in pairs(savedTransparencies) do
+            if part and part.Parent then
+                part.Transparency = trans
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+        savedTransparencies = {}
     end
 end)
