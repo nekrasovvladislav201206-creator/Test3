@@ -9,7 +9,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 -- Создание графического интерфейса
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = CoreGui
-ScreenGui.Name = "MM2GhostInvisFinal"
+ScreenGui.Name = "MM2GhostInvisAntiStuck"
 
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Parent = ScreenGui
@@ -19,7 +19,7 @@ ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.Font = Enum.Font.SourceSansBold
 ToggleButton.TextSize = 15
-ToggleButton.Text = "ММ2 Призрак Инвиз"
+ToggleButton.Text = "ММ2 Без лагов и застреваний"
 ToggleButton.Active = true
 ToggleButton.Draggable = true
 
@@ -31,9 +31,10 @@ local isInvis = false
 local ghost = nil
 local loopConnection = nil
 local clickConnection = nil
+local noclipConnection = nil
 
 local lastActionTime = 0
-local delayDuration = 0.75 -- Задержка 0.75 секунды для подбора и атаки
+local delayDuration = 0.75 -- Твоя задержка 0.75 сек
 local actionCFrame = nil
 
 -- Функция поиска монет и оружия вокруг призрака
@@ -89,56 +90,82 @@ ToggleButton.MouseButton1Click:Connect(function()
         -- Привязываем камеру к призраку
         workspace.CurrentCamera.CameraSubject = ghost:FindFirstChild("Humanoid")
         
-        -- 2. Отслеживаем клики мыши для атаки/выстрела оружия
+        -- 2. Тотальный NoClip и отключение веса (чтобы не застревать в полу и гарантированно уйти вниз)
+        noclipConnection = RunService.Stepped:Connect(function()
+            if isInvis and character then
+                for _, part in pairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false -- Отключаем столкновения с полом и стенами
+                        part.Massless = true -- Делаем персонажа невесомым
+                    end
+                end
+            end
+        end)
+        
+        -- 3. Отслеживаем клики мыши для атаки/выстрела оружия
         clickConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
             if gameProcessed then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                -- При клике фиксируем прыжок наверх для удара/выстрела
                 actionCFrame = ghost:FindFirstChild("HumanoidRootPart").CFrame
                 lastActionTime = os.clock()
             end
         end)
         
-        -- 3. Главный цикл физики
+        -- 4. Главный цикл физики
         loopConnection = RunService.Heartbeat:Connect(function()
             if isInvis and character and realRoot and ghost and ghost:FindFirstChild("HumanoidRootPart") do
                 local currentTime = os.clock()
                 local ghostRoot = ghost.HumanoidRootPart
                 
-                -- Синхронизируем ходьбу (настоящее тело под землей повторяет движения призрака на поверхности)
+                -- Синхронизируем ходьбу оригинала с призраком
                 realRoot.Velocity = ghostRoot.Velocity
                 
-                -- Логика удержания на 0.75 сек (для подбора или для атаки)
+                -- Отключаем силу притяжения на оригинале, чтобы физика Roblox не тянула его в текстуры пола
+                realRoot.AssemblyLinearVelocity = Vector3.new(ghostRoot.Velocity.X, 0, ghostRoot.Velocity.Z)
+                
+                -- Логика удержания на 0.75 сек
                 if currentTime - lastActionTime < delayDuration and actionCFrame then
                     realRoot.CFrame = actionCFrame
                 else
-                    -- Проверяем, нет ли под ногами монет
                     local targetItem = checkItems(ghostRoot)
                     if targetItem then
+                        -- Прыгаем к монете (сквозь пол, без застревания благодаря NoClip)
                         actionCFrame = targetItem.CFrame
                         lastActionTime = currentTime
                         realRoot.CFrame = actionCFrame
                     else
-                        -- Действий нет: настоящий персонаж сидит под землей (вы 100% невидимы)
+                        -- Действий нет: уходим глубоко под землю (100% инвиз, так как пол больше не держит)
                         actionCFrame = nil
-                        realRoot.CFrame = ghostRoot.CFrame * CFrame.new(0, -150, 0)
+                        realRoot.CFrame = ghostRoot.CFrame * CFrame.new(0, -100, 0)
                     end
                 end
             end
         end)
         
     else
-        -- Безопасное выключение: возвращаем вас наверх живым
-        ToggleButton.Text = "ММ2 Призрак Инвиз"
+        -- Безопасное выключение
+        ToggleButton.Text = "ММ2 Без лагов и застреваний"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
         
         if loopConnection then loopConnection:Disconnect() end
         if clickConnection then clickConnection:Disconnect() end
+        if noclipConnection then noclipConnection:Disconnect() end
         
         workspace.CurrentCamera.CameraSubject = character:FindFirstChild("Humanoid")
         
         if character and realRoot and ghost and ghost:FindFirstChild("HumanoidRootPart") then
+            -- Возвращаем наверх
             realRoot.CFrame = ghost.HumanoidRootPart.CFrame
+        end
+        
+        -- Возвращаем коллизию обратно
+        if character then
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                    part.Massless = false
+                end
+            end
         end
         
         if ghost then
