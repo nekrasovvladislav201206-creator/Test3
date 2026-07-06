@@ -8,7 +8,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 -- Создание графического интерфейса
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = CoreGui
-ScreenGui.Name = "MM2GodInvisFinalGui"
+ScreenGui.Name = "MM2InvisFinalFixGui"
 
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Parent = ScreenGui
@@ -35,17 +35,20 @@ local godConnection = nil
 local function checkItems(cloneRoot)
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
-            -- 1. Проверка монеты по вашему названию
+            -- 1. Проверка монеты
             if obj.Name == "Coin_Server" then
                 if (obj.Position - cloneRoot.Position).Magnitude < 5 then
                     return obj
                 end
             end
             
-            -- 2. Проверка упавшего пистолета (ищет HumanoidRootPart, который принадлежит выпавшему оружию)
-            if obj.Name == "HumanoidRootPart" and obj.Parent: someCondition or (obj.Parent:FindFirstChild("Gun") or obj.Parent.Name:lower():find("gun")) then
-                if (obj.Position - cloneRoot.Position).Magnitude < 5 then
-                    return obj
+            -- 2. Проверка упавшего пистолета (HumanoidRootPart от пустой модельки оружия)
+            if obj.Name == "HumanoidRootPart" and obj.Parent then
+                local parentName = obj.Parent.Name:lower()
+                if parentName:find("gun") or obj.Parent:FindFirstChild("Gun") then
+                    if (obj.Position - cloneRoot.Position).Magnitude < 5 then
+                        return obj
+                    end
                 end
             end
         end
