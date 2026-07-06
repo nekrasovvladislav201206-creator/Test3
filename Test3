@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -8,7 +9,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 -- Создание графического интерфейса
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = CoreGui
-ScreenGui.Name = "MM2InvisDelay75Gui"
+ScreenGui.Name = "MM2GhostInvisFinal"
 
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Parent = ScreenGui
@@ -18,7 +19,7 @@ ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.Font = Enum.Font.SourceSansBold
 ToggleButton.TextSize = 15
-ToggleButton.Text = "ММ2 Идеальный Инвиз"
+ToggleButton.Text = "ММ2 Призрак Инвиз"
 ToggleButton.Active = true
 ToggleButton.Draggable = true
 
@@ -27,31 +28,30 @@ UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = ToggleButton
 
 local isInvis = false
+local ghost = nil
 local loopConnection = nil
-local godConnection = nil
-local savedTransparencies = {}
+local clickConnection = nil
 
--- Настройка задержки подбора (0.75 секунды)
-local lastTeleportTime = 0
-local delayDuration = 0.75 -- Время удержания на предмете изменено на 0.75
-local currentTargetItem = nil
+local lastActionTime = 0
+local delayDuration = 0.75 -- Задержка 0.75 секунды для подбора и атаки
+local actionCFrame = nil
 
--- Функция проверки объектов рядом с игроком
-local function checkItems(rootPart)
+-- Функция поиска монет и оружия вокруг призрака
+local function checkItems(ghostRoot)
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
-            -- 1. Проверка монеты
+            -- 1. Поиск монеты
             if obj.Name == "Coin_Server" then
-                if (obj.Position - rootPart.Position).Magnitude < 6 then
+                if (obj.Position - ghostRoot.Position).Magnitude < 6 then
                     return obj
                 end
             end
             
-            -- 2. Проверка упавшего пистолета
+            -- 2. Поиск упавшего пистолета
             if obj.Name == "HumanoidRootPart" and obj.Parent then
                 local parentName = obj.Parent.Name:lower()
                 if parentName:find("gun") or obj.Parent:FindFirstChild("Gun") then
-                    if (obj.Position - rootPart.Position).Magnitude < 6 then -- Ошибка дистанции исправлена
+                    if (obj.Position - ghostRoot.Position).Magnitude < 6 then
                         return obj
                     end
                 end
@@ -64,7 +64,7 @@ end
 ToggleButton.MouseButton1Click:Connect(function()
     character = player.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
-    local root = character.HumanoidRootPart
+    local realRoot = character.HumanoidRootPart
     
     isInvis = not isInvis
     
@@ -72,85 +72,78 @@ ToggleButton.MouseButton1Click:Connect(function()
         ToggleButton.Text = "Выключить Инвиз"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         
-        -- 1. Делаем себя полупрозрачным локально
-        for _, part in pairs(character:GetDescendants()) do
+        -- 1. Создаем локального полупрозрачного призрака-наводчика
+        character.Archivable = true
+        ghost = character:Clone()
+        ghost.Parent = workspace
+        
+        for _, part in pairs(ghost:GetDescendants()) do
             if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                savedTransparencies[part] = part.Transparency
                 part.Transparency = 0.5
-            elseif part:IsA("Decal") or part:IsA("Texture") then
-                savedTransparencies[part] = part.Transparency
-                part.Transparency = 0.7
+                part.CanCollide = false
+            elseif part:IsA("Decal") then
+                part.Transparency = 0.6
             end
         end
         
-        -- Годмод (Защита от ножа)
-        godConnection = RunService.Stepped:Connect(function()
-            if character then
-                for _, plr in pairs(Players:GetPlayers()) do
-                    if plr ~= player and plr.Character and plr.Character:FindFirstChild("Knife") then
-                        local knife = plr.Character.Knife
-                        if knife:FindFirstChild("TouchInterest") then
-                            knife.TouchInterest:Destroy()
-                        end
-                    end
-                end
+        -- Привязываем камеру к призраку
+        workspace.CurrentCamera.CameraSubject = ghost:FindFirstChild("Humanoid")
+        
+        -- 2. Отслеживаем клики мыши для атаки/выстрела оружия
+        clickConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                -- При клике фиксируем прыжок наверх для удара/выстрела
+                actionCFrame = ghost:FindFirstChild("HumanoidRootPart").CFrame
+                lastActionTime = os.clock()
             end
         end)
         
-        -- 2. Главный физический цикл: скрытие суставов на сервере + задержка подбора 0.75 сек
+        -- 3. Главный цикл физики
         loopConnection = RunService.Heartbeat:Connect(function()
-            if isInvis and character and root then
+            if isInvis and character and realRoot and ghost and ghost:FindFirstChild("HumanoidRootPart") do
                 local currentTime = os.clock()
+                local ghostRoot = ghost.HumanoidRootPart
                 
-                -- Прячем отображение суставов для других игроков
-                for _, joint in pairs(character:GetDescendants()) do
-                    if joint:IsA("Motor6D") and joint.Name ~= "RootJoint" then
-                        joint.Transform = CFrame.new(0, -9999, 0)
-                    end
-                end
+                -- Синхронизируем ходьбу (настоящее тело под землей повторяет движения призрака на поверхности)
+                realRoot.Velocity = ghostRoot.Velocity
                 
-                -- Логика удержания хитбокса на предмете
-                if currentTime - lastTeleportTime < delayDuration and currentTargetItem then
-                    if currentTargetItem.Parent then -- Проверка, что предмет еще не исчез
-                        root.CFrame = currentTargetItem.CFrame
-                    else
-                        currentTargetItem = nil -- Если монета подобралась раньше, сбрасываем таймер
-                    end
+                -- Логика удержания на 0.75 сек (для подбора или для атаки)
+                if currentTime - lastActionTime < delayDuration and actionCFrame then
+                    realRoot.CFrame = actionCFrame
                 else
-                    -- Время удержания вышло -> ищем новые предметы вокруг
-                    local target = checkItems(root)
-                    if target then
-                        currentTargetItem = target
-                        lastTeleportTime = currentTime
-                        root.CFrame = target.CFrame
+                    -- Проверяем, нет ли под ногами монет
+                    local targetItem = checkItems(ghostRoot)
+                    if targetItem then
+                        actionCFrame = targetItem.CFrame
+                        lastActionTime = currentTime
+                        realRoot.CFrame = actionCFrame
                     else
-                        currentTargetItem = nil
+                        -- Действий нет: настоящий персонаж сидит под землей (вы 100% невидимы)
+                        actionCFrame = nil
+                        realRoot.CFrame = ghostRoot.CFrame * CFrame.new(0, -150, 0)
                     end
                 end
-                root.Velocity = Vector3.new(0, 0, 0)
             end
         end)
         
     else
-        -- 3. Безопасное отключение: без смерти и багов
-        ToggleButton.Text = "ММ2 Идеальный Инвиз"
+        -- Безопасное выключение: возвращаем вас наверх живым
+        ToggleButton.Text = "ММ2 Призрак Инвиз"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
         
         if loopConnection then loopConnection:Disconnect() end
-        if godConnection then godConnection:Disconnect() end
+        if clickConnection then clickConnection:Disconnect() end
         
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        workspace.CurrentCamera.CameraSubject = character:FindFirstChild("Humanoid")
+        
+        if character and realRoot and ghost and ghost:FindFirstChild("HumanoidRootPart") then
+            realRoot.CFrame = ghost.HumanoidRootPart.CFrame
         end
         
-        -- Возвращаем видимость скину
-        for part, trans in pairs(savedTransparencies) do
-            if part and part.Parent then
-                part.Transparency = trans
-            end
+        if ghost then
+            ghost:Destroy()
+            ghost = nil
         end
-        savedTransparencies = {}
-        currentTargetItem = nil
     end
 end)
