@@ -8,7 +8,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 -- Создание графического интерфейса
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = CoreGui
-ScreenGui.Name = "MM2InvisBaseWithDelay"
+ScreenGui.Name = "MM2InvisInstantGui"
 
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Parent = ScreenGui
@@ -18,7 +18,7 @@ ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.Font = Enum.Font.SourceSansBold
 ToggleButton.TextSize = 15
-ToggleButton.Text = "ММ2 Базовый Инвиз"
+ToggleButton.Text = "ММ2 Быстрый Инвиз"
 ToggleButton.Active = true
 ToggleButton.Draggable = true
 
@@ -30,23 +30,21 @@ local isInvis = false
 local clone = nil
 local loopConnection = nil
 
--- Переменные таймера задержки (0.25 секунды)
-local lastTeleportTime = 0
-local delayDuration = 0.01 
-local teleportCFrame = nil
+-- Список уже собранных монет, чтобы на них не залипать
+local ignoredItems = {}
 
--- Функция проверки объектов рядом с полупрозрачным клоном
+-- Функция проверки предметов вокруг клона
 local function checkItems(cloneRoot)
     for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            -- 1. Проверка монеты (твое название)
+        if obj:IsA("BasePart") and not ignoredItems[obj] then
+            -- 1. Проверка монеты
             if obj.Name == "Coin_Server" then
                 if (obj.Position - cloneRoot.Position).Magnitude < 5 then
                     return obj
                 end
             end
             
-            -- 2. Проверка упавшего пистолета (твое название)
+            -- 2. Проверка упавшего пистолета
             if obj.Name == "HumanoidRootPart" and obj.Parent then
                 local parentName = obj.Parent.Name:lower()
                 if parentName:find("gun") or obj.Parent:FindFirstChild("Gun") then
@@ -69,8 +67,9 @@ ToggleButton.MouseButton1Click:Connect(function()
     if isInvis then
         ToggleButton.Text = "Выключить"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        table.clear(ignoredItems)
         
-        -- 1. Создаем локального полупрозрачного клона для тебя
+        -- Создаем локального полупрозрачного клона
         character.Archivable = true
         clone = character:Clone()
         clone.Parent = workspace
@@ -84,34 +83,24 @@ ToggleButton.MouseButton1Click:Connect(function()
             end
         end
         
-        -- Переключаем камеру и управление на прозрачного клона
         workspace.CurrentCamera.CameraSubject = clone:FindFirstChild("Humanoid")
         player.Character = clone
         
-        -- 2. Главный цикл перемещения с таймером удержания 0.25 сек
+        -- Главный цикл мгновенного перемещения
         loopConnection = RunService.Heartbeat:Connect(function()
             if isInvis and character and character:FindFirstChild("HumanoidRootPart") and clone and clone:FindFirstChild("HumanoidRootPart") then
                 local realRoot = character.HumanoidRootPart
                 local cloneRoot = clone.HumanoidRootPart
-                local currentTime = os.clock()
                 
-                -- Если идет удержание на предмете (прошло меньше 0.25 сек)
-                if currentTime - lastTeleportTime < delayDuration and teleportCFrame then
-                    realRoot.CFrame = teleportCFrame
+                local targetItem = checkItems(cloneRoot)
+                
+                if targetItem then
+                    -- МГНОВЕННЫЙ ПРЫЖОК: прыгаем на монету и сразу заносим её в игнор
+                    realRoot.CFrame = targetItem.CFrame
+                    ignoredItems[targetItem] = true
                 else
-                    -- Время удержания вышло -> ищем новые предметы вокруг клона
-                    local targetItem = checkItems(cloneRoot)
-                    
-                    if targetItem then
-                        -- Нашли монету/пистолет: запоминаем CFrame и сбрасываем таймер прыжка
-                        teleportCFrame = targetItem.CFrame
-                        lastTeleportTime = currentTime
-                        realRoot.CFrame = teleportCFrame
-                    else
-                        -- Предметов рядом нет: сидим глубоко под землей, под клоном
-                        teleportCFrame = nil
-                        realRoot.CFrame = cloneRoot.CFrame * CFrame.new(0, -150, 0)
-                    end
+                    -- МГНОВЕННЫЙ УХОД: если новых монет нет, сразу сидим глубоко под картой
+                    realRoot.CFrame = cloneRoot.CFrame * CFrame.new(0, -150, 0)
                 end
                 realRoot.Velocity = Vector3.new(0, 0, 0)
             end
@@ -119,7 +108,7 @@ ToggleButton.MouseButton1Click:Connect(function()
         
     else
         -- Выключение
-        ToggleButton.Text = "ММ2 Базовый Инвиз"
+        ToggleButton.Text = "ММ2 Быстрый Инвиз"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
         
         if loopConnection then loopConnection:Disconnect() end
@@ -135,6 +124,6 @@ ToggleButton.MouseButton1Click:Connect(function()
             clone:Destroy()
             clone = nil
         end
-        teleportCFrame = nil
+        table.clear(ignoredItems)
     end
 end)
