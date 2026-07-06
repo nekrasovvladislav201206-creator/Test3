@@ -8,7 +8,7 @@ local character = player.Character or player.CharacterAdded:Wait()
 -- Создание графического интерфейса
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = CoreGui
-ScreenGui.Name = "MM2LoopHackGui"
+ScreenGui.Name = "MM2LoopHackFixedGui"
 
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Parent = ScreenGui
@@ -28,26 +28,40 @@ UICorner.Parent = ToggleButton
 
 -- Переменные состояний (0 = обычный, 1 = бессмертие, 2 = невидимость)
 local currentMode = 0
-local clone = nil
+local savedTransparencies = {}
 local loopConnection = nil
-local godConnection = nil
 
--- Функция для полной очистки всех режимов
+-- Функция полной очистки всех режимов перед переключением
 local function resetAll()
     if loopConnection then loopConnection:Disconnect(); loopConnection = nil end
-    if godConnection then godConnection:Disconnect(); godConnection = nil end
     
-    player.Character = character
-    workspace.CurrentCamera.CameraSubject = character:FindFirstChild("Humanoid")
+    character = player.Character
+    if not character then return end
     
-    if character and character:FindFirstChild("HumanoidRootPart") and clone and clone:FindFirstChild("HumanoidRootPart") then
-        character.HumanoidRootPart.CFrame = clone.HumanoidRootPart.CFrame
+    -- Возвращаем физику и коллизию
+    for _, part in pairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = true
+        end
     end
     
-    if clone then
-        clone:Destroy()
-        clone = nil
+    -- Возвращаем видимость без ресета и смерти
+    for part, trans in pairs(savedTransparencies) do
+        if part and part.Parent then
+            part.Transparency = trans
+            local mesh = part:FindFirstChildOfClass("SpecialMesh") or part:FindFirstChildOfClass("CharacterMesh")
+            if mesh then mesh.Scale = Vector3.new(1, 1, 1) end
+        end
     end
+    
+    -- Возвращаем аксессуары
+    for _, access in pairs(character:GetDescendants()) do
+        if access:IsA("Accessory") and access:FindFirstChild("Handle") then
+            access.Handle.Transparency = 0
+        end
+    end
+    
+    table.clear(savedTransparencies)
 end
 
 ToggleButton.MouseButton1Click:Connect(function()
@@ -56,60 +70,59 @@ ToggleButton.MouseButton1Click:Connect(function()
     
     -- Переключаем режим по кругу (0 -> 1 -> 2 -> 0)
     currentMode = (currentMode + 1) % 3
+    resetAll() -- Сбрасываем предыдущий режим перед активацией нового
     
     if currentMode == 1 then
-        -- === РЕЖИМ 1: БЕССМЕРТИЕ ===
-        resetAll() -- на всякий случай чистим старое
+        -- === РЕЖИМ 1: РАБОЧЕЕ БЕССМЕРТИЕ (NoClip-God) ===
         ToggleButton.Text = "Режим: БЕССМЕРТИЕ"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50) -- Зеленый
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
         
-        -- Годмод: удаляем триггеры урона у всех чужих ножей каждую секунду
-        godConnection = RunService.Stepped:Connect(function()
-            for _, plr in pairs(Players:GetPlayers()) do
-                if plr ~= player and plr.Character and plr.Character:FindFirstChild("Knife") then
-                    local knife = plr.Character.Knife
-                    if knife:FindFirstChild("TouchInterest") then
-                        knife.TouchInterest:Destroy()
+        -- Потоковый NoClip: отключает хитбокс коллизии персонажа. Нож мардера просто пролетает сквозь вас, не нанося урон
+        loopConnection = RunService.Stepped:Connect(function()
+            if character then
+                for _, part in pairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
                     end
                 end
             end
         end)
         
     elseif currentMode == 2 then
-        -- === РЕЖИМ 2: НЕВИДИМОСТЬ ===
-        resetAll()
+        -- === РЕЖИМ 2: МГНОВЕННАЯ НЕВИДИМОСТЬ ===
         ToggleButton.Text = "Режим: НЕВИДИМОСТЬ"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Красный
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         
-        -- Создаем локального полупрозрачного клона
-        character.Archivable = true
-        clone = character:Clone()
-        clone.Parent = workspace
-        
-        for _, part in pairs(clone:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                part.Transparency = 0.5
-                part.CanCollide = false
-            elseif part:IsA("Decal") then
-                part.Transparency = 0.6
-            end
-        end
-        
-        workspace.CurrentCamera.CameraSubject = clone:FindFirstChild("Humanoid")
-        player.Character = clone
-        
-        -- Настоящее тело прячется под карту, пока вы бегаете клоном
+        -- Постоянный цикл скрытия мешей для сервера (зануление масштаба)
         loopConnection = RunService.Heartbeat:Connect(function()
-            if character and character:FindFirstChild("HumanoidRootPart") and clone and clone:FindFirstChild("HumanoidRootPart") then
-                character.HumanoidRootPart.CFrame = clone.HumanoidRootPart.CFrame * CFrame.new(0, -150, 0)
-                character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+            if character then
+                for _, part in pairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                        -- Сохраняем оригинал, если еще не сохранили
+                        if not savedTransparencies[part] then
+                            savedTransparencies[part] = part.Transparency
+                        end
+                        -- Для тебя: полупрозрачный вид
+                        part.Transparency = 0.5
+                        part.CanCollide = false
+                        
+                        -- Для сервера: сжимаем части тела в ноль, игроки видят пустоту
+                        local mesh = part:FindFirstChildOfClass("SpecialMesh") or part:FindFirstChildOfClass("CharacterMesh")
+                        if mesh then
+                            mesh.Scale = Vector3.new(0, 0, 0)
+                        end
+                    elseif part:IsA("Decal") or part:IsA("Texture") then
+                        part.Transparency = 1
+                    elseif part:IsA("Accessory") and part:FindFirstChild("Handle") then
+                        part.Handle.Transparency = 1
+                    end
+                end
             end
         end)
         
     else
         -- === РЕЖИМ 0: ОБЫЧНЫЙ ===
-        resetAll()
         ToggleButton.Text = "Режим: ОБЫЧНЫЙ"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35) -- Серый
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
     end
 end)
