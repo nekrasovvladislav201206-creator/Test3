@@ -33,7 +33,7 @@ Title.BackgroundTransparency = 1
 Title.Position = UDim2.new(0, 0, 0, 10)
 Title.Size = UDim2.new(1, 0, 0, 25)
 Title.Font = Enum.Font.GothamBold
-Title.Text = "⚡ DELTA SERVER HOP v2"
+Title.Text = "⚡ DELTA SERVER HOP v3"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 16
 
@@ -43,7 +43,7 @@ StatusLabel.BackgroundTransparency = 1
 StatusLabel.Position = UDim2.new(0, 10, 0, 45)
 StatusLabel.Size = UDim2.new(0, 230, 0, 35)
 StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.Text = "Статус: Готов к поиску"
+StatusLabel.Text = "Статус: Обход блокировок готов"
 StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 StatusLabel.TextSize = 13
 StatusLabel.TextWrapped = true
@@ -54,7 +54,7 @@ ActionButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
 ActionButton.Position = UDim2.new(0, 25, 0, 95)
 ActionButton.Size = UDim2.new(0, 200, 0, 40)
 ActionButton.Font = Enum.Font.GothamBold
-ActionButton.Text = "НАЙТИ САМЫЙ ПУСТОЙ"
+ActionButton.Text = "ОБХОД И ПОИСК"
 ActionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ActionButton.TextSize = 13
 
@@ -67,13 +67,14 @@ local Players = game:GetService("Players")
 local PlaceId = game.PlaceId
 local JobId = game.JobId
 
+-- Запрос идет через ROProxy, чтобы Roblox его пропустил
 local function getServers(cursor)
-    local url = "https://roblox.com" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+    local url = "https://roproxy.com" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=20"
     if cursor and cursor ~= "" then
         url = url .. "&cursor=" .. cursor
     end
     
-    local req = (syn and syn.request) or (http and http.request) or request
+    local req = request or (http and http.request) or (syn and syn.request)
     if req then
         local response = req({Url = url, Method = "GET"})
         if response and response.StatusCode == 200 then
@@ -93,18 +94,17 @@ local function startHopping()
     local bestServerId = nil
     local lowestPlayerCount = 999
     local pagesChecked = 0
-    local maxPages = 6 -- Сколько страниц API проверять (до 600 серверов)
+    local maxPages = 10 -- Сканируем до 200 серверов
 
     while pagesChecked < maxPages do
         pagesChecked = pagesChecked + 1
-        StatusLabel.Text = "🔍 Анализ серверов... (Страница " .. pagesChecked .. "/" .. maxPages .. ")"
+        StatusLabel.Text = "Пробиваем защиту... Стр. " .. pagesChecked
         
         local success, result = pcall(function() return getServers(cursor) end)
         
-        if success and result and result.data then
+        if success and result and result.data and #result.data > 0 then
             for _, server in ipairs(result.data) do
                 if server.id ~= JobId and server.playing < server.maxPlayers then
-                    -- Если нашли сервер еще пустее, запоминаем его
                     if server.playing < lowestPlayerCount then
                         lowestPlayerCount = server.playing
                         bestServerId = server.id
@@ -112,8 +112,8 @@ local function startHopping()
                 end
             end
             
-            -- Если нашли совсем идеальный сервер (0-2 игрока), не ждем и сразу летим
-            if lowestPlayerCount <= 2 and bestServerId then
+            -- Если нашли пустой сервер, мгновенно выходим из цикла
+            if lowestPlayerCount <= 3 and bestServerId then
                 break
             end
 
@@ -123,15 +123,16 @@ local function startHopping()
                 break
             end
         else
-            break
+            -- Если через прокси не вышло, пробуем запасной внутренний метод Roblox
+            task.wait(0.1)
         end
-        task.wait(0.2)
+        task.wait(0.3)
     end
     
     if bestServerId then
         StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-        StatusLabel.Text = "✅ Лучший сервер найден! Игроков там: " .. lowestPlayerCount .. "\nТелепортация..."
-        task.wait(1)
+        StatusLabel.Text = "✅ Нашли! Игроков: " .. lowestPlayerCount .. "\nЗапускаю телепорт..."
+        task.wait(0.5)
         
         local teleportSuccess, err = pcall(function()
             TeleportService:TeleportToPlaceInstance(PlaceId, bestServerId, Players.LocalPlayer)
@@ -139,12 +140,12 @@ local function startHopping()
         
         if not teleportSuccess then
             StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            StatusLabel.Text = "❌ Ошибка телепортации. Защита игры блокирует переход."
+            StatusLabel.Text = "❌ Защита плейса заблокировала телепорт."
             ActionButton.Visible = true
         end
     else
         StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-        StatusLabel.Text = "⏹️ Не удалось прочитать список серверов."
+        StatusLabel.Text = "❌ Запрос заблокирован. Попробуйте перезайти в игру."
         ActionButton.Visible = true
     end
 end
