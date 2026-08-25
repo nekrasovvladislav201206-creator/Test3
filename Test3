@@ -1,44 +1,124 @@
+-- Создаем красивый интерфейс для Delta
+local ScreenGui = Instance.new("ScreenGui")
+local MainFrame = Instance.new("Frame")
+local Title = Instance.new("TextLabel")
+local StatusLabel = Instance.new("TextLabel")
+local ActionButton = Instance.new("TextButton")
+local UICorner = Instance.new("UICorner")
+local ButtonCorner = Instance.new("UICorner")
+
+-- Настройки родителя интерфейса (защита от удаления игрой)
+ScreenGui.Name = "ServerHopGui"
+ScreenGui.Parent = game:GetService("CoreGui") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+
+-- Главное окно
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+MainFrame.Position = UDim2.new(0.5, -125, 0.4, -75)
+MainFrame.Size = UDim2.new(0, 250, 0, 150)
+MainFrame.Active = true
+MainFrame.Draggable = true -- Окно можно двигать пальцем по экрану
+
+UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.Parent = MainFrame
+
+-- Заголовок
+Title.Name = "Title"
+Title.Parent = MainFrame
+Title.BackgroundTransparency = 1
+Title.Position = UDim2.new(0, 0, 0, 10)
+Title.Size = UDim2.new(1, 0, 0, 25)
+Title.Font = Enum.Font.GothamBold
+Title.Text = "⚡ DELTA SERVER HOP"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 16
+
+-- Текст Статуса (показывает, что происходит прямо сейчас)
+StatusLabel.Name = "StatusLabel"
+StatusLabel.Parent = MainFrame
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Position = UDim2.new(0, 10, 0, 45)
+StatusLabel.Size = UDim2.new(0, 230, 0, 30)
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.Text = "Статус: Ожидание запуска..."
+StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatusLabel.TextSize = 14
+StatusLabel.TextWrapped = true
+
+-- Кнопка Найти Сервер
+ActionButton.Name = "ActionButton"
+ActionButton.Parent = MainFrame
+ActionButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+ActionButton.Position = UDim2.new(0, 25, 0, 90)
+ActionButton.Size = UDim2.new(0, 200, 0, 40)
+ActionButton.Font = Enum.Font.GothamBold
+ActionButton.Text = "НАЙТИ ПУСТОЙ СЕРВЕР"
+ActionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ActionButton.TextSize = 14
+
+ButtonCorner.CornerRadius = UDim.new(0, 8)
+ButtonCorner.Parent = ActionButton
+
+-- Логика работы скрипта
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
-
 local PlaceId = game.PlaceId
 local JobId = game.JobId
 
--- Функция для безопасного запроса через Delta API
 local function getServers(cursor)
     local url = "https://roblox.com" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
     if cursor and cursor ~= "" then
         url = url .. "&cursor=" .. cursor
     end
     
-    -- Используем request, который поддерживается в Delta
     local req = (syn and syn.request) or (http and http.request) or request
     if req then
-        local response = req({
-            Url = url,
-            Method = "GET"
-        })
+        local response = req({Url = url, Method = "GET"})
         if response and response.StatusCode == 200 then
             return HttpService:JSONDecode(response.Body)
         end
     else
-        -- Запасной вариант, если request не сработал
         return HttpService:JSONDecode(game:HttpGet(url))
     end
     return nil
 end
 
-local function findEmptyServer()
+local function startHopping()
+    ActionButton.Visible = false -- Скрываем кнопку на время поиска
+    StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 100)
+    StatusLabel.Text = "🔍 Сканирую сервера Roblox API..."
+    
     local cursor = ""
+    local pagesChecked = 0
+    
     while true do
-        local result = getServers(cursor)
+        pagesChecked = pagesChecked + 1
+        StatusLabel.Text = "🔍 Сканирую API... (Страница " .. pagesChecked .. ")"
         
-        if result and result.data then
+        local success, result = pcall(function() return getServers(cursor) end)
+        
+        if success and result and result.data then
             for _, server in ipairs(result.data) do
-                -- Ищем сервер, где играет 0, 1 или 2 человека (чтобы точно зайти)
+                -- Если нашли сервер, где 0, 1 или 2 игрока
                 if server.playing <= 2 and server.id ~= JobId then
-                    return server.id
+                    StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+                    StatusLabel.Text = "✅ Найдено игроков: " .. server.playing .. "\nТелепортирую..."
+                    task.wait(1)
+                    
+                    local teleportSuccess, err = pcall(function()
+                        TeleportService:TeleportToPlaceInstance(PlaceId, server.id, Players.LocalPlayer)
+                    end)
+                    
+                    if not teleportSuccess then
+                        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+                        StatusLabel.Text = "❌ Ошибка телепорта. Пробую другой..."
+                        task.wait(1)
+                    else
+                        return -- Успешный телепорт уводит нас из этой игры
+                    end
                 end
             end
             
@@ -48,19 +128,19 @@ local function findEmptyServer()
                 break
             end
         else
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            StatusLabel.Text = "❌ API заблокирован или нет ответа."
             break
         end
-        task.wait(0.5) -- Небольшая задержка, чтобы Delta не вылетела
+        task.wait(0.3) -- Безопасный интервал для Delta
     end
-    return nil
+    
+    StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    StatusLabel.Text = "⏹️ Пустые сервера не найдены."
+    ActionButton.Visible = true
 end
 
-print("Поиск пустого сервера...")
-local targetServer = findEmptyServer()
-
-if targetServer then
-    print("Сервер найден! Телепортация...")
-    TeleportService:TeleportToPlaceInstance(PlaceId, targetServer, Players.LocalPlayer)
-else
-    print("Пустой сервер не найден или API заблокирован.")
-end
+-- Привязка функции к кнопке
+ActionButton.MouseButton1Click:Connect(function()
+    startHopping()
+end)
