@@ -1,4 +1,9 @@
--- Создаем красивый интерфейс для Delta
+-- Удаляем старое окно, если оно осталось
+if game:GetService("CoreGui"):FindFirstChild("ServerHopGui") then
+    game:GetService("CoreGui").ServerHopGui:Destroy()
+end
+
+-- Создаем интерфейс
 local ScreenGui = Instance.new("ScreenGui")
 local MainFrame = Instance.new("Frame")
 local Title = Instance.new("TextLabel")
@@ -7,61 +12,55 @@ local ActionButton = Instance.new("TextButton")
 local UICorner = Instance.new("UICorner")
 local ButtonCorner = Instance.new("UICorner")
 
--- Настройки родителя интерфейса (защита от удаления игрой)
 ScreenGui.Name = "ServerHopGui"
 ScreenGui.Parent = game:GetService("CoreGui") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 ScreenGui.ResetOnSpawn = false
 
--- Главное окно
 MainFrame.Name = "MainFrame"
 MainFrame.Parent = ScreenGui
-MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
 MainFrame.Position = UDim2.new(0.5, -125, 0.4, -75)
-MainFrame.Size = UDim2.new(0, 250, 0, 150)
+MainFrame.Size = UDim2.new(0, 250, 150)
 MainFrame.Active = true
-MainFrame.Draggable = true -- Окно можно двигать пальцем по экрану
+MainFrame.Draggable = true
 
 UICorner.CornerRadius = UDim.new(0, 12)
 UICorner.Parent = MainFrame
 
--- Заголовок
 Title.Name = "Title"
 Title.Parent = MainFrame
 Title.BackgroundTransparency = 1
 Title.Position = UDim2.new(0, 0, 0, 10)
 Title.Size = UDim2.new(1, 0, 0, 25)
 Title.Font = Enum.Font.GothamBold
-Title.Text = "⚡ DELTA SERVER HOP"
+Title.Text = "⚡ DELTA SERVER HOP v2"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.TextSize = 16
 
--- Текст Статуса (показывает, что происходит прямо сейчас)
 StatusLabel.Name = "StatusLabel"
 StatusLabel.Parent = MainFrame
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Position = UDim2.new(0, 10, 0, 45)
-StatusLabel.Size = UDim2.new(0, 230, 0, 30)
+StatusLabel.Size = UDim2.new(0, 230, 0, 35)
 StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.Text = "Статус: Ожидание запуска..."
+StatusLabel.Text = "Статус: Готов к поиску"
 StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-StatusLabel.TextSize = 14
+StatusLabel.TextSize = 13
 StatusLabel.TextWrapped = true
 
--- Кнопка Найти Сервер
 ActionButton.Name = "ActionButton"
 ActionButton.Parent = MainFrame
 ActionButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-ActionButton.Position = UDim2.new(0, 25, 0, 90)
+ActionButton.Position = UDim2.new(0, 25, 0, 95)
 ActionButton.Size = UDim2.new(0, 200, 0, 40)
 ActionButton.Font = Enum.Font.GothamBold
-ActionButton.Text = "НАЙТИ ПУСТОЙ СЕРВЕР"
+ActionButton.Text = "НАЙТИ САМЫЙ ПУСТОЙ"
 ActionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ActionButton.TextSize = 14
+ActionButton.TextSize = 13
 
 ButtonCorner.CornerRadius = UDim.new(0, 8)
 ButtonCorner.Parent = ActionButton
 
--- Логика работы скрипта
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
@@ -87,60 +86,69 @@ local function getServers(cursor)
 end
 
 local function startHopping()
-    ActionButton.Visible = false -- Скрываем кнопку на время поиска
+    ActionButton.Visible = false
     StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 100)
-    StatusLabel.Text = "🔍 Сканирую сервера Roblox API..."
     
     local cursor = ""
+    local bestServerId = nil
+    local lowestPlayerCount = 999
     local pagesChecked = 0
-    
-    while true do
+    local maxPages = 6 -- Сколько страниц API проверять (до 600 серверов)
+
+    while pagesChecked < maxPages do
         pagesChecked = pagesChecked + 1
-        StatusLabel.Text = "🔍 Сканирую API... (Страница " .. pagesChecked .. ")"
+        StatusLabel.Text = "🔍 Анализ серверов... (Страница " .. pagesChecked .. "/" .. maxPages .. ")"
         
         local success, result = pcall(function() return getServers(cursor) end)
         
         if success and result and result.data then
             for _, server in ipairs(result.data) do
-                -- Если нашли сервер, где 0, 1 или 2 игрока
-                if server.playing <= 2 and server.id ~= JobId then
-                    StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-                    StatusLabel.Text = "✅ Найдено игроков: " .. server.playing .. "\nТелепортирую..."
-                    task.wait(1)
-                    
-                    local teleportSuccess, err = pcall(function()
-                        TeleportService:TeleportToPlaceInstance(PlaceId, server.id, Players.LocalPlayer)
-                    end)
-                    
-                    if not teleportSuccess then
-                        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-                        StatusLabel.Text = "❌ Ошибка телепорта. Пробую другой..."
-                        task.wait(1)
-                    else
-                        return -- Успешный телепорт уводит нас из этой игры
+                if server.id ~= JobId and server.playing < server.maxPlayers then
+                    -- Если нашли сервер еще пустее, запоминаем его
+                    if server.playing < lowestPlayerCount then
+                        lowestPlayerCount = server.playing
+                        bestServerId = server.id
                     end
                 end
             end
             
+            -- Если нашли совсем идеальный сервер (0-2 игрока), не ждем и сразу летим
+            if lowestPlayerCount <= 2 and bestServerId then
+                break
+            end
+
             if result.nextPageCursor then
                 cursor = result.nextPageCursor
             else
                 break
             end
         else
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            StatusLabel.Text = "❌ API заблокирован или нет ответа."
             break
         end
-        task.wait(0.3) -- Безопасный интервал для Delta
+        task.wait(0.2)
     end
     
-    StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-    StatusLabel.Text = "⏹️ Пустые сервера не найдены."
-    ActionButton.Visible = true
+    if bestServerId then
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        StatusLabel.Text = "✅ Лучший сервер найден! Игроков там: " .. lowestPlayerCount .. "\nТелепортация..."
+        task.wait(1)
+        
+        local teleportSuccess, err = pcall(function()
+            TeleportService:TeleportToPlaceInstance(PlaceId, bestServerId, Players.LocalPlayer)
+        end)
+        
+        if not teleportSuccess then
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            StatusLabel.Text = "❌ Ошибка телепортации. Защита игры блокирует переход."
+            ActionButton.Visible = true
+        end
+    else
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        StatusLabel.Text = "⏹️ Не удалось прочитать список серверов."
+        ActionButton.Visible = true
+    end
 end
 
--- Привязка функции к кнопке
 ActionButton.MouseButton1Click:Connect(function()
     startHopping()
 end)
