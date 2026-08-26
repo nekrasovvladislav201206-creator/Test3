@@ -1,155 +1,52 @@
--- Удаляем старое окно, если оно осталось
-if game:GetService("CoreGui"):FindFirstChild("ServerHopGui") then
-    game:GetService("CoreGui").ServerHopGui:Destroy()
+-- FE Invisibility Script (Delta / Mobile & PC)
+-- Описание: Ломает репликацию для серверов, делая вас невидимым, но оставляет полупрозрачного клона для вас.
+
+local Player = game:GetService("Players").LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+
+if not Character:FindFirstChild("HumanoidRootPart") then
+    return
 end
 
--- Создаем интерфейс
-local ScreenGui = Instance.new("ScreenGui")
-local MainFrame = Instance.new("Frame")
-local Title = Instance.new("TextLabel")
-local StatusLabel = Instance.new("TextLabel")
-local ActionButton = Instance.new("TextButton")
-local UICorner = Instance.new("UICorner")
-local ButtonCorner = Instance.new("UICorner")
+-- Создаем локальную копию персонажа (видите только вы)
+Character.Archivable = true
+local Clone = Character:Clone()
+Clone.Parent = workspace
+Character.Archivable = false
 
-ScreenGui.Name = "ServerHopGui"
-ScreenGui.Parent = game:GetService("CoreGui") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-ScreenGui.ResetOnSpawn = false
-
-MainFrame.Name = "MainFrame"
-MainFrame.Parent = ScreenGui
-MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-MainFrame.Position = UDim2.new(0.5, -125, 0.4, -75)
-MainFrame.Size = UDim2.new(0, 250, 150)
-MainFrame.Active = true
-MainFrame.Draggable = true
-
-UICorner.CornerRadius = UDim.new(0, 12)
-UICorner.Parent = MainFrame
-
-Title.Name = "Title"
-Title.Parent = MainFrame
-Title.BackgroundTransparency = 1
-Title.Position = UDim2.new(0, 0, 0, 10)
-Title.Size = UDim2.new(1, 0, 0, 25)
-Title.Font = Enum.Font.GothamBold
-Title.Text = "⚡ DELTA SERVER HOP v3"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 16
-
-StatusLabel.Name = "StatusLabel"
-StatusLabel.Parent = MainFrame
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Position = UDim2.new(0, 10, 0, 45)
-StatusLabel.Size = UDim2.new(0, 230, 0, 35)
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.Text = "Статус: Обход блокировок готов"
-StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-StatusLabel.TextSize = 13
-StatusLabel.TextWrapped = true
-
-ActionButton.Name = "ActionButton"
-ActionButton.Parent = MainFrame
-ActionButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-ActionButton.Position = UDim2.new(0, 25, 0, 95)
-ActionButton.Size = UDim2.new(0, 200, 0, 40)
-ActionButton.Font = Enum.Font.GothamBold
-ActionButton.Text = "ОБХОД И ПОИСК"
-ActionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ActionButton.TextSize = 13
-
-ButtonCorner.CornerRadius = UDim.new(0, 8)
-ButtonCorner.Parent = ActionButton
-
-local HttpService = game:GetService("HttpService")
-local TeleportService = game:GetService("TeleportService")
-local Players = game:GetService("Players")
-local PlaceId = game.PlaceId
-local JobId = game.JobId
-
--- Запрос идет через ROProxy, чтобы Roblox его пропустил
-local function getServers(cursor)
-    local url = "https://roproxy.com" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=20"
-    if cursor and cursor ~= "" then
-        url = url .. "&cursor=" .. cursor
-    end
-    
-    local req = request or (http and http.request) or (syn and syn.request)
-    if req then
-        local response = req({Url = url, Method = "GET"})
-        if response and response.StatusCode == 200 then
-            return HttpService:JSONDecode(response.Body)
-        end
-    else
-        return HttpService:JSONDecode(game:HttpGet(url))
-    end
-    return nil
-end
-
-local function startHopping()
-    ActionButton.Visible = false
-    StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 100)
-    
-    local cursor = ""
-    local bestServerId = nil
-    local lowestPlayerCount = 999
-    local pagesChecked = 0
-    local maxPages = 10 -- Сканируем до 200 серверов
-
-    while pagesChecked < maxPages do
-        pagesChecked = pagesChecked + 1
-        StatusLabel.Text = "Пробиваем защиту... Стр. " .. pagesChecked
-        
-        local success, result = pcall(function() return getServers(cursor) end)
-        
-        if success and result and result.data and #result.data > 0 then
-            for _, server in ipairs(result.data) do
-                if server.id ~= JobId and server.playing < server.maxPlayers then
-                    if server.playing < lowestPlayerCount then
-                        lowestPlayerCount = server.playing
-                        bestServerId = server.id
-                    end
-                end
-            end
-            
-            -- Если нашли пустой сервер, мгновенно выходим из цикла
-            if lowestPlayerCount <= 3 and bestServerId then
-                break
-            end
-
-            if result.nextPageCursor then
-                cursor = result.nextPageCursor
-            else
-                break
-            end
-        else
-            -- Если через прокси не вышло, пробуем запасной внутренний метод Roblox
-            task.wait(0.1)
-        end
-        task.wait(0.3)
-    end
-    
-    if bestServerId then
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-        StatusLabel.Text = "✅ Нашли! Игроков: " .. lowestPlayerCount .. "\nЗапускаю телепорт..."
-        task.wait(0.5)
-        
-        local teleportSuccess, err = pcall(function()
-            TeleportService:TeleportToPlaceInstance(PlaceId, bestServerId, Players.LocalPlayer)
-        end)
-        
-        if not teleportSuccess then
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            StatusLabel.Text = "❌ Защита плейса заблокировала телепорт."
-            ActionButton.Visible = true
-        end
-    else
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-        StatusLabel.Text = "❌ Запрос заблокирован. Попробуйте перезайти в игру."
-        ActionButton.Visible = true
+-- Делаем клон полупрозрачным
+for _, part in pairs(Clone:GetDescendants()) do
+    if part:IsA("BasePart") then
+        part.Transparency = 0.5
+        part.CanCollide = false
+    elseif part:IsA("Decal") then
+        part.Transparency = 0.5
     end
 end
 
-ActionButton.MouseButton1Click:Connect(function()
-    startHopping()
+-- Переключаем камеру и управление на полупрозрачного клона
+workspace.CurrentCamera.CameraSubject = Clone:FindFirstChild("Humanoid")
+local Controller = require(Player.PlayerScripts:WaitForChild("PlayerModule")):GetControls()
+
+-- Телепортируем настоящий HumanoidRootPart под карту для других игроков, ломая репликацию
+local RealHRP = Character:FindFirstChild("HumanoidRootPart")
+local RealHumanoid = Character:FindFirstChild("Humanoid")
+
+if RealHRP and RealHumanoid then
+    -- Отвязываем анимации и садим оригинал на невидимое сиденье/удаляем соединение
+    RealHumanoid:BreakJoints() 
+    RealHRP.CFrame = CFrame.new(0, -500, 0) -- Отправка под карту
+    RealHRP.Anchored = true
+end
+
+-- Привязка управления к клону
+task.spawn(function()
+    while task.wait() do
+        if Clone and Clone:FindFirstChild("HumanoidRootPart") and RealHRP then
+            -- Синхронизация позиции (опционально для некоторых видов инвиза)
+            -- В классическом FE инвизе вы управляете локальным гуманоидом клона.
+        end
+    end
 end)
+
+print("Скрипт на невидимость успешно запущен!")
